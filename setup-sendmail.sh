@@ -4,13 +4,13 @@
 # Only run once
 #
 
-. email2fax.txt
+. ./email2fax.txt
 
 # INSTALL REQUIRED PACKAGES
 
 echo "Installing required packages"
 
-yum -y install sendmail sendmail-cf
+yum -y install sendmail sendmail-cf || apt-get install sendmail sendmail-cf
 
 # CONFIGURE SENDMAIL FOR EMAIL TO FAX
 
