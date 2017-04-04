@@ -17,12 +17,11 @@ fi
 
 . ./debian-prefs.txt
 
-# INSTALL REQUIRED PACKAGES
+# INSTALL REQUIRED NGINX PACKAGES
 
 echo "Installing required packages"
 
-# removed libpq4
-apt-get install apache2-mpm-prefork apache2-utils apache2.2-common libapache2-mod-php5 libapr1 libaprutil1 libsqlite3-0 php5-cli php5-common mysql-server imagemagick libtiff4-dev netpbm libnetpbm10-dev libungif-bin libungif4-dev sudo php-mail php-mail-mime php-file php-db php5-mysql psutils wdiff rsync postfix 
+apt -y install libapr1 libaprutil1 libsqlite3-0 imagemagick netpbm libnetpbm10-dev libungif-bin libtiff5-dev:i386 libtiff5-dev sudo php-mail php-mail-mime php-db psutils wdiff rsync postfix 
 
 pear channel-update pear.php.net
 pear upgrade-all
@@ -37,8 +36,6 @@ chown $HTTPDUSER:$HTTPDGROUP avantfax/includes/templates/admin_theme/templates_c
 chmod 0755 avantfax/includes/faxcover.php avantfax/includes/faxrcvd.php avantfax/includes/notify.php avantfax/tools/update_contacts.php avantfax/tools/faxcover.php avantfax/includes/avantfaxcron.php avantfax/includes/dynconf.php
 
 cp avantfax/includes/local_config-example.php avantfax/includes/local_config.php
-
-# echo "AdminGroup: apache" >> /etc/hylafax/hfaxd.conf
 
 echo "CoverCmd:		$INSTDIR/includes/faxcover.php" >> /etc/hylafax/sendfax.conf
 
@@ -60,31 +57,43 @@ chown -R $HTTPDUSER.$HTTPDGROUP $INSTDIR
 chmod -R 0770 $INSTDIR/tmp $INSTDIR/faxes
 chown -R $HTTPDUSER.uucp $INSTDIR/tmp $INSTDIR/faxes
 
-# DISABLE SELINUX FOR APACHE
+# PLEASE CONFIGURE AVANTFAX VIRTUALHOST FOR NGINX MANUALLY
+# NOTE THAT AVANTFAX SUPPORT IS UP TO PHP5 ONLY
 
-# echo "Disabling SELinux for Apache"
-
-# setsebool -P httpd_disable_trans 1
-
-# CONFIGURE AVANTFAX VIRTUALHOST
-
-cat >> /etc/apache2/sites-enabled/000-default << EOF
-
-<VirtualHost *:80>
-    DocumentRoot $INSTDIR
-    ServerName avantfax
-    ErrorLog logs/avantfax-error_log
-    CustomLog logs/avantfax-access_log common
-</VirtualHost>
-EOF
-
-# START APACHE
-
-/etc/init.d/apache2 restart
+<<"COMMENT"
+        location /avantfax {
+                root /var/www/;
+                index index.php index.html index.htm;
+                location ~ ^/avantfax/(.+\.php)$ {
+                        try_files $uri =404;
+                        root /var/www/;
+                        # include /etc/nginx/fastcgi_params;
+                        fastcgi_pass unix:/var/run/php/php5.6-fpm.sock;
+                        fastcgi_param HTTPS $fastcgi_https; # <-- add this line fastcgi_paramHTTPS on;
+                        fastcgi_index index.php;
+                        fastcgi_param SCRIPT_FILENAME $request_filename;
+                        include /etc/nginx/fastcgi_params;
+                        fastcgi_param PATH_INFO $fastcgi_script_name; # <-- disabled if causing access problem
+                        fastcgi_buffer_size 128k;
+                        fastcgi_buffers 256 4k;
+                        fastcgi_busy_buffers_size 256k;
+                        fastcgi_temp_file_write_size 256k;
+                        fastcgi_intercept_errors on;
+                }
+                location ~* ^/avantfax/(.+\.(jpg|jpeg|gif|css|png|js|ico|html|xml|txt))$ {
+                        root /var/www/;
+                }
+        }
+        location /fax {
+                rewrite ^/* /avantfax last;
+COMMENT
+				
+# RESTART NGINX
+service nginx restart
 
 # IMPORT MYSQL DATABASE
 
-/etc/init.d/mysql start
+service mysql restart
 
 echo "## Creating AvantFAX MySQL database ##"
 mysql --user=root --password=$ROOTMYSQLPWD -e "GRANT ALL ON $DB.* TO $USER@localhost IDENTIFIED BY \"$PASS\"" mysql
@@ -94,9 +103,9 @@ mysqlshow --user=$USER --password=$PASS $DB
 
 # SYMLINK AVANTFAX SCRIPTS
 
-ln -s $INSTDIR/includes/faxrcvd.php $SPOOL/bin/faxrcvd.php
-ln -s $INSTDIR/includes/dynconf.php $SPOOL/bin/dynconf.php
-ln -s $INSTDIR/includes/notify.php  $SPOOL/bin/notify.php
+ln -s $INSTDIR/includes/faxrcvd.php $SPOOL/bin/faxrcvd
+ln -s $INSTDIR/includes/dynconf.php $SPOOL/bin/dynconf
+ln -s $INSTDIR/includes/notify.php  $SPOOL/bin/notify
 
 # FIX FILEINFO
 
@@ -115,8 +124,8 @@ chown root.root  /etc/sudoers
 
 # Make backup of HylaFAX configuration
 
-mkdir /etc/hylafax/abackup
-cp /etc/hylafax/config* /etc/hylafax/abackup/
+mkdir /etc/hylafax/backups
+cp /etc/hylafax/config* /etc/hylafax/backups/
 
 # CONFIGURE MODEMS TO USE AVANTFAX
 
@@ -131,8 +140,8 @@ cat >> $i << EOF
 #
 ## AvantFAX
 #
-FaxRcvdCmd:     bin/faxrcvd.php
-DynamicConfig:  bin/dynconf.php
+FaxRcvdCmd:     bin/faxrcvd
+DynamicConfig:  bin/dynconf
 UseJobTSI:      true
 
 EOF
@@ -147,7 +156,7 @@ cat >>  /etc/hylafax/config << EOF
 #
 ## AvantFAX
 #
-NotifyCmd:      bin/notify.php
+NotifyCmd:      bin/notify
 
 EOF
 
@@ -178,8 +187,8 @@ printf "0 0 * * *\t$INSTDIR/includes/avantfaxcron.php -t 2\n" > /etc/cron.d/avan
 
 echo -e "Installation complete\n\n"
 
-IP=`/sbin/ifconfig eth0 | grep "inet addr" | awk -F' ' '{print $2}' | awk -F':' '{print $2}'`
+#IP=`/sbin/ifconfig eth0 | grep "inet addr" | awk -F' ' '{print $2}' | awk -F':' '{print $2}'`
 
-echo -e "Log into the Administrative interface at: http://$IP/admin/"
+echo -e "Log into the Administrative interface at: http://`hostname -f`:8080/avantfax/admin/"
 echo -e "Username: admin\nPassword: password"
 # DONE #
