@@ -4,7 +4,7 @@
 # Only run once
 #
 
-. email2fax.txt
+. ./email2fax.txt
 
 # INSTALL REQUIRED APPS IF NOT ALREADY INSTALLED
 
