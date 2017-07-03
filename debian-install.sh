@@ -25,7 +25,7 @@ apt -y install libapr1 libaprutil1 libsqlite3-0 imagemagick netpbm libnetpbm10-d
 
 pear channel-update pear.php.net
 pear upgrade-all
-pear install Mail Net_SMTP Mail_mime MDB2_driver_mysql
+pear install -f Mail Net_SMTP Mail_mime MDB2_driver_mysql
 
 echo "Installing AvantFAX and configuring HylaFAX"
 
